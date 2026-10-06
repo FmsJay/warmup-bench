@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Warmup Bench</title>
+<meta name="description" content="Vocal warm-ups on a real piano: quick routines, a full exercise builder, your coach's exercises, and recorded sessions.">
+<meta name="theme-color" content="#14484C">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,400..700,50;1,9..144,400..600,50&family=Karla:ital,wght@0,400;0,500;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css?v=4">
+</head>
+<body>
+<div class="app">
+  <header class="mast">
+    <div class="brand">
+      <h1>Warmup Bench</h1>
+      <span class="sub" id="subline">Pianoteq piano · your exercises · recorded sessions</span>
+    </div>
+    <div class="status">
+      <span class="pill" id="pPiano"><span class="dot"></span><span>Loading piano</span></span>
+      <span class="pill" id="pLib" hidden><span class="dot"></span><span></span></span>
+      <span class="pill" id="pSync" hidden><span class="dot"></span><span></span></span>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist" aria-label="Sections">
+    <button class="tab" role="tab" data-tab="quick" id="tab-quick"><span class="ti">Quick</span></button>
+    <button class="tab" role="tab" data-tab="library" id="tab-library"><span class="ti">Library</span></button>
+    <button class="tab" role="tab" data-tab="build" id="tab-build"><span class="ti">Build</span></button>
+    <button class="tab" role="tab" data-tab="practice" id="tab-practice"><span class="ti">Sing</span></button>
+    <button class="tab" role="tab" data-tab="sessions" id="tab-sessions"><span class="ti">Sessions</span><span class="count" id="cSess"></span></button>
+    <button class="tab" role="tab" data-tab="coach" id="tab-coach"><span class="ti">Coach</span><span class="count" id="cCoach"></span></button>
+  </nav>
+
+  <main>
+    <section class="view" id="view-quick" role="tabpanel" aria-labelledby="tab-quick"></section>
+    <section class="view" id="view-library" role="tabpanel" aria-labelledby="tab-library" hidden></section>
+    <section class="view" id="view-build" role="tabpanel" aria-labelledby="tab-build" hidden></section>
+    <section class="view" id="view-practice" role="tabpanel" aria-labelledby="tab-practice" hidden></section>
+    <section class="view" id="view-sessions" role="tabpanel" aria-labelledby="tab-sessions" hidden></section>
+    <section class="view" id="view-coach" role="tabpanel" aria-labelledby="tab-coach" hidden></section>
+  </main>
+</div>
+<div class="toast" id="toast" hidden></div>
+<div class="sheet-back" id="sheetBack" hidden></div>
+<div class="sheet" id="sheet" hidden role="dialog" aria-modal="true"></div>
+
+<script src="js/core.js?v=4"></script>
+<script src="js/library.js?v=4"></script>
+<script src="js/audio.js?v=4"></script>
+<script src="js/mylib.js?v=4"></script>
+<script src="js/app.js?v=4"></script>
+</body>
+</html>

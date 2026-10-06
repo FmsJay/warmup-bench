@@ -1,0 +1,16 @@
+{
+  "name": "Warmup Bench",
+  "short_name": "Warmup",
+  "description": "Vocal warm-ups on a Pianoteq piano, with recorded sessions for your coach.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0D1A1B",
+  "theme_color": "#14484C",
+  "icons": [
+    {"src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png"},
+    {"src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"}
+  ]
+}
