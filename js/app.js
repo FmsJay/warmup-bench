@@ -1211,7 +1211,11 @@ function boot() {
     loadCoach(); if (coach) mergeReplies(coach); updateCounts(); updateCoachCount(); emitLib();
   });
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") ML.sync(false); });
-  if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+  if ("serviceWorker" in navigator) {
+    if (location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+    // served from this computer: never let an old offline copy stand in for the real files
+    else navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister())).catch(() => {});
+  }
   // the piano and mic need an AudioContext, which browsers only start after a tap
   document.addEventListener("pointerdown", () => { A.ensure(); A.ctx().resume(); }, { once: true });
 }
