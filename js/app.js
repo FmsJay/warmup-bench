@@ -408,7 +408,7 @@ function newItem(type) {
   if (type === "drone") return { id: W.uid(), type, name: "Drone", block: "other", vowel: "ah", cue: "Sing freely over the drone, inside your comfortable range.", note: W.noteAscii(Math.round((r.lo + r.hi) / 2) - 5), secs: 120, fifth: true };
   if (type === "timer") return { id: W.uid(), type, name: "Guided", block: "rest", vowel: "", cue: "", secs: 60, steps: ["First step", "Second step"] };
   const it = { id: W.uid(), type: "scale", name: "Five-tone scale", block: "warmup", vowel: "ah", cue: "", pattern: "1 2 3 4 5 4 3 2 1", scale: "maj", mode: "degrees", syllables: "",
-    from: "", to: "", back: true, step: 1, reps: 1, bpm: 92, beat: 1, hold: 0, lead: "chordnote", chordStyle: "block", bed: true, bass: false, gap: 2, click: false, countIn: false };
+    from: "", to: "", back: true, step: 1, reps: 1, bpm: 92, beat: 1, hold: 0, lead: "chord", chordStyle: "block", bed: true, bass: false, gap: 2, click: false, countIn: false };
   W.fitToRange(it, r.lo, r.hi); return it;
 }
 function renderItems() {
@@ -473,7 +473,7 @@ function renderEditor() {
         ${fld("Hold last note", selx("hold", it.hold || 0, [[0, "No"], [1, "+1 beat"], [2, "+2 beats"], [4, "+4 beats"], [8, "+8 beats"]]))}
         ${fld("Gap between keys", selx("gap", it.gap ?? 2, [[0, "None"], [1, "1 beat"], [2, "2 beats"], [2.5, "2½ beats"], [3, "3 beats"], [4, "4 beats"], [6, "6 beats"]]))}</div>
       <div class="section-h"><span class="label">Piano</span></div>
-      <div class="fields">${fld("Before each key", selx("lead", it.lead || "chordnote", [["chordnote", "Chord, then first note"], ["chord", "Chord only"], ["note", "First note only"], ["cadence", "I–V–I, then first note"], ["cadence4", "I–IV–V–I, then first note"], ["none", "Nothing"]]))}
+      <div class="fields">${fld("Before each key", selx("lead", (it.lead === "chordnote" ? "chord" : it.lead) || "chord", [["chord", "Chord"], ["cadence", "I–V–I"], ["cadence4", "I–IV–V–I"], ["note", "First note only"], ["none", "Nothing"]]))}
         ${fld("Chord style", selx("chordStyle", it.chordStyle || "block", [["block", "Block"], ["broken", "Rolled"]]))}</div>
       <div class="row" style="margin-top:6px">${chk("bed", it.bed !== false, "Chord under the pattern")}${chk("bass", it.bass, "Bass root")}${chk("click", it.click, "Click while singing")}${chk("countIn", it.countIn, "Count in")}</div>`;
   } else if (t === "siren") {
@@ -645,6 +645,7 @@ async function startRoutine(from) {
   if (S.outId && A.canPickOutput()) try { await A.setOutput(S.outId); } catch (e) {}
   if (S.record) {
     try { await A.mic.open(S.micId || ""); recStart = await A.mic.startRecording(); } catch (e) { recErr = e; toast("Not recording: " + (e.message || e.name)); }
+    A.mic.onEnded = () => { toast("The microphone stopped. What was recorded so far is kept."); if (P.log) P.log.events.push({ t: rel(A.ctx().currentTime), e: "mic-ended", i: P.idx }); };
   } else if (S.lane) { try { await A.mic.open(S.micId || ""); } catch (e) {} }
   P.sessT0 = ctx.currentTime + 0.4;
   P.log = { v: 2, app: "warmup-bench/web-1", id: "s" + new Date().toISOString().replace(/[-:T]/g, "").slice(0, 12) + W.uid().slice(0, 3),
@@ -654,7 +655,7 @@ async function startRoutine(from) {
     recording: recStart !== null ? { mime: A.mic.mime, recStartCtx: +recStart.toFixed(4), sessT0Ctx: +P.sessT0.toFixed(4),
       // seconds of recording before the app's t = 0, BEFORE the clap refines it
       offsetS: +(P.sessT0 - recStart + (ctx.outputLatency || 0)).toFixed(4) } : null,
-    recordError: recErr ? String(recErr.message || recErr) : null, mic: A.mic.info() };
+    recordError: recErr ? String(recErr.message || recErr) : null, mic: A.mic.info(), micAutoPicked: A.mic.autoPicked || null, delayMs: S.delayMs ?? null };
   el("playBtn").textContent = "Pause"; ["backBtn", "skipBtn", "stopBtn"].forEach(b => el(b).disabled = false);
   if (S.clap) {
     // THE SYNC CLAP. Four clicks; he claps on the fourth. Its app time is logged; its time in
@@ -787,8 +788,15 @@ function loop() {
         lastPitch = now; const p = A.mic.pitch();
         const lv = el("micMeter"); if (lv && p) { lv.style.width = Math.min(100, p.rms * 500) + "%"; lv.parentElement.classList.toggle("hot", p.rms > 0.3); }
         if (p && p.midi && p.clarity > 0.75) {
-          P.pitchHist.push({ t: ctx.currentTime, m: p.midi });
-          const target = cur ? cur.m : null;
+          /* Where was this sung, on the piano's timeline? Detected now, but the audio is
+             p.age old, it took the input latency to arrive, and the note he was singing
+             against reached his ears outLat after it was scheduled. Measured delay wins. */
+          const outLat = (ctx.baseLatency || 0) + (ctx.outputLatency || 0), inLat = ((A.mic.info() || {}).latency || 0.01);
+          const back = S.delayMs != null ? S.delayMs / 1000 + p.age : p.age + inLat + outLat;
+          const ts = ctx.currentTime - back;
+          P.pitchHist.push({ t: ts, m: p.midi });
+          let tgt = null; const posV = ts - P.t0; for (const e of ev) { if (e.t > posV) break; if (e.k === "note" && posV < e.t + e.dur) tgt = e; }
+          const target = tgt ? tgt.m : null;
           const c = el("nowCents");
           if (c) { if (target !== null) { const d = Math.round((p.midi - target) * 100); c.textContent = (Math.abs(d) <= 15 ? "● on pitch " : d > 0 ? "▲ " : "▼ ") + (d > 0 ? "+" : "") + d + "¢"; c.style.color = Math.abs(d) <= 15 ? "var(--sage)" : Math.abs(d) <= 35 ? "var(--brass)" : "var(--rose)"; } else { c.textContent = "you: " + W.noteName(Math.round(p.midi)); c.style.color = ""; } }
         }
@@ -911,10 +919,19 @@ async function renderDevices() {
     <div class="field"><label for="devOut">Speakers or headphones</label>${A.canPickOutput() && d.outputs.length
       ? `<select id="devOut">${d.outputs.map((x, i) => `<option value="${esc(x.deviceId)}" ${x.deviceId === (S.outId || "default") ? "selected" : ""}>${esc(x.label || "Output " + (i + 1))}</option>`).join("")}</select>`
       : `<span class="muted small">${esc(await A.outputLabel())}. This browser only plays to the system output, so change it in your sound settings.</span>`}</div>
+    <div class="row"><button class="btn small" id="devDelay">Measure delay</button><span class="small muted" id="devDelayOut">${S.delayMs != null ? "Round trip " + Math.round(S.delayMs) + " ms (measured)" : "Not measured yet: the lane uses the browser's estimate"}</span></div>
+    ${A.mic.autoPicked ? `<span class="faint small">Picked <b>${esc(A.mic.autoPicked)}</b> over the system default, which was a virtual device.</span>` : ""}
     ${info ? `<div class="stack" style="gap:6px"><span class="small">In use: <b>${esc(info.label)}</b> · <span class="mono">${info.sampleRate ? (info.sampleRate / 1000).toFixed(1) + " kHz" : ""}${info.channelCount ? " · " + info.channelCount + " ch" : ""}</span></span>
       <div class="row">${flag("autoGainControl", "Auto-gain")}${flag("echoCancellation", "Echo cancel")}${flag("noiseSuppression", "Noise suppression")}</div>
       ${info.autoGainControl || info.echoCancellation || info.noiseSuppression ? `<div class="callout small">The browser kept some voice processing on despite the request. Pitch is fine, but level and breathiness readings will not be comparable.</div>` : ""}</div>` : ""}`;
-  const dm = el("devMic"); dm.addEventListener("change", async () => { S.micId = dm.value; saveS(); if (A.mic.stream) { try { await A.mic.open(S.micId); } catch (e) { toast("Microphone: " + e.message); } } renderDevices(); });
+  const dm = el("devMic"); dm.addEventListener("change", async () => {
+    if (A.mic.recording()) { toast("Finish the recording before switching microphones."); renderDevices(); return; }
+    S.micId = dm.value; saveS(); if (A.mic.stream) { try { await A.mic.open(S.micId); } catch (e) { toast("Microphone: " + e.message); } } renderDevices(); });
+  el("devDelay").addEventListener("click", async () => {
+    const o = el("devDelayOut"); o.textContent = "Listening… (with earbuds, hold one to the mic)";
+    try { const r = await A.measureDelay(); S.delayMs = Math.round(r.delay * 1000); saveS(); o.textContent = "Round trip " + S.delayMs + " ms (" + r.heard + " of 5 clicks, spread " + Math.round(r.spread * 1000) + " ms)"; }
+    catch (e) { o.textContent = e.message; }
+  });
   const dout = el("devOut"); if (dout) dout.addEventListener("change", async () => { S.outId = dout.value; saveS(); try { await A.setOutput(S.outId); toast("Playing through " + dout.options[dout.selectedIndex].text); } catch (e) { toast(e.message); } });
 }
 let micTest = null;
@@ -985,6 +1002,7 @@ async function savePost() {
   const log = post.log;
   Object.assign(log, { ratings: post.ratings, throat: post.throat, energy: post.energy ? +post.energy : null, notes: el("pNotes").value.trim(), savedAt: new Date().toISOString() });
   if (post.blob && log.recording) { log.recording.bytes = post.blob.size; log.recording.type = post.blob.type; }
+  if (!post.blob && log.recording) { log.recording.lost = true; toast("The recording came back empty. The microphone may have stopped during the session."); }
   try { await DB.putSession(log); if (post.blob) await DB.putAudio(log.id, post.blob); }
   catch (e) { toast("Could not save on this device: " + e.message); return; }
   el("postPanel").innerHTML = `<div class="callout sage"><b>Saved on this device.</b> Send it to the coach from <b>Sessions</b>${SYNC.server ? " (one tap: the coach server is connected)" : ""}.</div><div class="row"><button class="btn primary" id="pSend">Send to coach now</button></div>`;
@@ -1014,7 +1032,8 @@ async function sendSession(id) {
     try {
       let r = await fetch("api/session?id=" + encodeURIComponent(id), { method: "POST", headers: { "Content-Type": "application/json" }, body: json });
       if (!r.ok) throw new Error("server said " + r.status);
-      if (blob) { r = await fetch("api/audio?id=" + encodeURIComponent(id) + "&ext=" + audioExt(blob.type), { method: "PUT", body: blob }); if (!r.ok) throw new Error("audio: " + r.status); }
+      if (blob) { r = await fetch("api/audio?id=" + encodeURIComponent(id) + "&ext=" + audioExt(blob.type), { method: "PUT", body: blob }); if (!r.ok) throw new Error("the recording upload failed (" + r.status + ")"); }
+      else if (s.recording) toast("This session has no recording saved, so only the log was sent.");
       s.sentAt = new Date().toISOString(); s.sentVia = "server"; await DB.putSession(s); toast("Sent to the coach"); renderSessions(); return;
     } catch (e) { toast("Server send failed (" + e.message + "). Using share instead."); }
   }

@@ -21,7 +21,7 @@ const SRC = { classic: "Classic" };
 
 /* shorthand */
 const S = (o) => Object.assign({ type: "scale", scale: "maj", bpm: 92, beat: 1, hold: 0, gap: 2,
-  lead: "chordnote", bed: true, back: true, step: 1, reps: 1, countIn: false, click: false }, o);
+  lead: "chord", bed: true, back: true, step: 1, reps: 1, countIn: false, click: false }, o);
 const G = (o) => Object.assign({ type: "siren", low: "E2", high: "E4", secs: 10, count: 3, gap: 4, countIn: true, shape: "updown" }, o);
 const B = (o) => Object.assign({ type: "breath", bpm: 72, inCounts: 4, outCounts: 16, reps: 3, rest: 6 }, o);
 const T = (o) => Object.assign({ type: "timer", secs: 60 }, o);

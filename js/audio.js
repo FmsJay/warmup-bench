@@ -171,10 +171,16 @@ A.silence = function () {
    make speech sound good on a call and they wreck a singing measurement - AGC alone fakes
    an improvement in breath evenness. */
 const M = A.mic = { stream: null, src: null, an: null, rec: null, chunks: [], startedAt: null, mime: "" };
-M.deviceId = "";
+M.deviceId = ""; M.chosen = false;
+M.recording = () => !!(M.rec && M.rec.state === "recording");
 M.open = async function (deviceId) {
   A.ensure();
-  if (deviceId !== undefined && deviceId !== M.deviceId) { M.close(); M.deviceId = deviceId; }
+  if (deviceId) M.chosen = true;
+  if (deviceId !== undefined && deviceId && deviceId !== M.deviceId) {
+    // never pull the stream out from under a recording: that is how a take ends up empty
+    if (M.recording()) throw new Error("Finish the recording before switching microphones.");
+    M.close(); M.deviceId = deviceId;
+  }
   if (M.stream) return M.stream;
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error("This browser has no microphone access. Use Chrome, Edge or Safari over https.");
   const audio = { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 1 };
@@ -184,8 +190,24 @@ M.open = async function (deviceId) {
     if (e.name === "OverconstrainedError" && M.deviceId) { M.deviceId = ""; delete audio.deviceId; M.stream = await navigator.mediaDevices.getUserMedia({ audio }); }
     else throw e;
   }
+  /* No device chosen? Then don't trust the system default. On a desk with Voicemeeter the
+     default input is often a VIRTUAL device, which adds its own buffering and processing.
+     Prefer an audio interface, and anything over a virtual device. */
+  if (!M.deviceId && !M.chosen) {
+    const VIRT = /voicemeeter|vb-audio|virtual|cable|stereo mix|wave ?link|loopback|blackhole|soundflower/i;
+    const PREF = /focusrite|scarlett|clarett|vocaster|universal audio|apollo|volt|motu|audient|ssl|rme|presonus|steinberg|shure|rode|zoom|behringer|line 6/i;
+    const label = (M.stream.getAudioTracks()[0] || {}).label || "";
+    if (VIRT.test(label) || !PREF.test(label)) {
+      const ins = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "audioinput" && d.deviceId && d.deviceId !== "default" && d.deviceId !== "communications");
+      const better = ins.find(d => PREF.test(d.label) && !VIRT.test(d.label)) || (VIRT.test(label) ? ins.find(d => !VIRT.test(d.label)) : null);
+      if (better) { M.stream.getTracks().forEach(t => t.stop()); audio.deviceId = { exact: better.deviceId }; M.deviceId = better.deviceId; M.stream = await navigator.mediaDevices.getUserMedia({ audio }); M.autoPicked = better.label; }
+    }
+  }
+  // If the input dies mid-take (unplugged, driver reset), say so instead of failing silently.
+  M.stream.getAudioTracks().forEach(t => t.addEventListener("ended", () => { M.ended = true; if (M.onEnded) M.onEnded(); }));
   M.src = ctx.createMediaStreamSource(M.stream);
-  M.an = ctx.createAnalyser(); M.an.fftSize = 4096; M.src.connect(M.an);
+  // 2048 samples, not 4096: a shorter window is less lag between singing and seeing it
+  M.an = ctx.createAnalyser(); M.an.fftSize = 2048; M.src.connect(M.an);
   M.buf = new Float32Array(M.an.fftSize);
   return M.stream;
 };
@@ -230,12 +252,46 @@ M.startRecording = function () {
 };
 M.stopRecording = function () {
   return new Promise(resolve => {
-    if (!M.rec || M.rec.state === "inactive") return resolve(null);
-    M.rec.onstop = () => resolve(new Blob(M.chunks, { type: M.rec.mimeType || M.mime || "audio/webm" }));
+    const done = () => { const b = new Blob(M.chunks, { type: (M.rec && M.rec.mimeType) || M.mime || "audio/webm" }); resolve(b.size ? b : null); };
+    if (!M.rec) return resolve(null);
+    // a recorder that already stopped on its own (the input died) still holds what it got
+    if (M.rec.state === "inactive") return done();
+    M.rec.onstop = done;
+    try { M.rec.requestData(); } catch (e) {}
     M.rec.stop();
   });
 };
 
+/* Round-trip delay: play clicks, hear them come back through the mic, time the gap. With
+   earbuds, hold one to the mic. The result is the delay between a note being scheduled and
+   the same moment reaching the app through the mic - output + air + input + buffers. */
+A.measureDelay = async function () {
+  await M.open(M.deviceId || undefined); await ctx.resume();
+  const sp = ctx.createScriptProcessor(1024, 1, 1), mute = ctx.createGain(); mute.gain.value = 0;
+  const caps = [];
+  sp.onaudioprocess = e => { caps.push({ t: e.playbackTime - 1024 / ctx.sampleRate, d: new Float32Array(e.inputBuffer.getChannelData(0)) }); };
+  M.src.connect(sp); sp.connect(mute); mute.connect(ctx.destination);
+  const t0 = ctx.currentTime + 0.5, gap = 0.6, n = 5;
+  for (let i = 0; i < n; i++) A.click(t0 + i * gap, true);
+  await new Promise(r => setTimeout(r, (0.5 + n * gap + 0.8) * 1000));
+  sp.disconnect(); M.src.disconnect(sp); mute.disconnect();
+  const sr = ctx.sampleRate, delays = [];
+  let noise = 0, cnt = 0; for (const c of caps) if (c.t < t0 - 0.05) { for (const v of c.d) { noise += v * v; cnt++; } }
+  const floor = Math.sqrt(noise / Math.max(1, cnt)) || 1e-4;
+  for (let i = 0; i < n; i++) {
+    const ct = t0 + i * gap;
+    let found = null;
+    for (const c of caps) {
+      if (c.t + c.d.length / sr < ct || c.t > ct + 0.5) continue;
+      for (let j = 0; j < c.d.length; j++) { const tt = c.t + j / sr; if (tt < ct) continue; if (Math.abs(c.d[j]) > Math.max(floor * 8, 0.02)) { found = tt; break; } }
+      if (found !== null) break;
+    }
+    if (found !== null) delays.push(found - ct);
+  }
+  if (delays.length < 3) throw new Error("Couldn't hear the clicks. Turn the speakers up, or hold an earbud to the mic.");
+  delays.sort((a, b) => a - b);
+  return { delay: delays[Math.floor(delays.length / 2)], spread: delays[delays.length - 1] - delays[0], heard: delays.length };
+};
 /* Pitch: YIN (de Cheveigne & Kawahara 2002) on the analyser's window. Returns
    {hz, midi, clarity, rms} or null when unvoiced. Range 60-1100 Hz covers fry-free singing. */
 M.pitch = function () {
@@ -251,9 +307,10 @@ M.pitch = function () {
   if (!M.dbuf || M.dbuf.length !== n) M.dbuf = new Float32Array(n);
   const x16 = M.dbuf; for (let i = 0; i < n; i++) { let a = 0; for (let k = 0; k < dec; k++) a += b[i * dec + k]; x16[i] = a / dec; }
   const fs = sr / dec;
-  const W = 512, maxTau = Math.min(Math.floor(fs / 65), n - W - 1), minTau = Math.floor(fs / 1100);
+  // Use the NEWEST samples in the window, not the oldest: the oldest end is ~40 ms stale.
+  const W = 384, maxTau = Math.min(Math.floor(fs / 65), n - W - 1), minTau = Math.floor(fs / 1100), o0 = n - W - maxTau - 1;
   const d = new Float32Array(maxTau + 1);
-  for (let tau = minTau; tau <= maxTau; tau++) { let s = 0; for (let i = 0; i < W; i++) { const x = x16[i] - x16[i + tau]; s += x * x; } d[tau] = s; }
+  for (let tau = minTau; tau <= maxTau; tau++) { let s = 0; for (let i = 0; i < W; i++) { const x = x16[o0 + i] - x16[o0 + i + tau]; s += x * x; } d[tau] = s; }
   let run = 0, tau = -1; const cm = new Float32Array(maxTau + 1);
   for (let t = minTau; t <= maxTau; t++) { run += d[t]; cm[t] = run ? d[t] * (t - minTau + 1) / run : 1; }
   for (let t = minTau + 1; t < maxTau; t++) { if (cm[t] < 0.15) { while (t + 1 < maxTau && cm[t + 1] < cm[t]) t++; tau = t; break; } }
@@ -261,7 +318,8 @@ M.pitch = function () {
   const a = cm[tau - 1] ?? cm[tau], c = cm[tau + 1] ?? cm[tau], den = a + c - 2 * cm[tau];
   const t2 = den ? tau + (a - c) / (2 * den) : tau;
   const f = fs / t2;
-  return { hz: f, midi: 69 + 12 * Math.log2(f / 440), clarity: 1 - cm[tau], rms };
+  // `age`: how old the analysed audio is, centre of the window, for plotting it in time
+  return { hz: f, midi: 69 + 12 * Math.log2(f / 440), clarity: 1 - cm[tau], rms, age: (W / 2 + maxTau) / fs };
 };
 M.level = function () {
   if (!M.an) return 0; M.an.getFloatTimeDomainData(M.buf);

@@ -188,16 +188,18 @@ function buildEvents(it) {
     const first = notes.find(n => n.semi !== null), startNote = r + (first ? first.semi : 0);
     keys.push({ t, label: "", root: r, ki, of: roots.length });
     const ch = triadOf(r, scale);
-    const lead = it.lead || "chordnote";
+    // The chord alone is the cue: "chord, then first note" is read as "chord" everywhere,
+    // including in saved warm-ups that still say chordnote. Only an explicit "note" plays a note.
+    let lead = it.lead || "chord"; if (lead === "chordnote") lead = "chord";
     const strum = it.chordStyle === "broken";
     const playChord = (notesIn, at, dur, kind) => notesIn.forEach((m, j) => ev.push({ t: at + (strum ? j * spb * 0.18 : 0), k: kind, m, dur }));
-    if (lead === "chord" || lead === "chordnote") { playChord(ch, t, 2 * spb, "chord"); t += 2 * spb; }
+    if (lead === "chord") { playChord(ch, t, 2 * spb, "chord"); t += 2 * spb; }
     if (lead === "cadence" || lead === "cadence4") {
       const IV = [r + 5 - 12, r + 9 - 12, r], V = [r - 5, r - 1, r + 2];
       const seq = lead === "cadence4" ? [ch, IV, V, ch] : [ch, V, ch];
       seq.forEach(c => { playChord(c, t, spb * 0.95, "chord"); t += spb; });
     }
-    if (lead === "chordnote" || lead === "note" || lead === "cadence" || lead === "cadence4") { ev.push({ t, k: "lead", m: startNote, dur: spb * 0.9 }); t += spb; }
+    if (lead === "note") { ev.push({ t, k: "lead", m: startNote, dur: spb * 0.9 }); t += spb; }
     const exBeats = notes.reduce((s, n) => s + n.beats, 0) * (it.beat || 1) + (it.hold || 0);
     const exDur = exBeats * spb;
     if (it.bed !== false && lead !== "none" || it.bed === true) {
@@ -310,7 +312,7 @@ function quickRoutine(opt) {
   const pick = F.order.slice(0, n);
   const bpm = +opt.bpm || 72;
   const spb = 60 / bpm;
-  const lead = opt.chords === false ? "note" : "chordnote";
+  const lead = opt.chords === false ? "note" : "chord";
 
   // one repeat of each exercise, to price it
   const items = pick.map(k => {
