@@ -1,7 +1,7 @@
 /* Offline: the app shell and the piano are cached on first visit, so a warm-up works with no
    signal. Bump VERSION whenever any cached file changes, or phones keep the old one. */
-const VERSION = "wb-4";
-const SHELL = ["./", "index.html", "styles.css?v=4", "manifest.webmanifest", "js/core.js?v=4", "js/library.js?v=4", "js/audio.js?v=4", "js/mylib.js?v=4", "js/app.js?v=4", "icons/icon-192.png"];
+const VERSION = "wb-5";
+const SHELL = ["./", "index.html", "styles.css?v=5", "manifest.webmanifest", "js/core.js?v=5", "js/library.js?v=5", "js/audio.js?v=5", "js/mylib.js?v=5", "js/app.js?v=5", "icons/icon-192.png"];
 self.addEventListener("install", e => {
   e.waitUntil((async () => {
     const c = await caches.open(VERSION);

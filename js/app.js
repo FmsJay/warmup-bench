@@ -1000,7 +1000,9 @@ async function savePost() {
         Drive / Files / email, and the coach picks it up from there. */
 const SYNC = { server: false };
 async function detectServer() {
-  try { const r = await fetch("api/ping", { cache: "no-store" }); if (r.ok) { const j = await r.json(); SYNC.server = !!j.ok; } } catch (e) {}
+  // the coach server only ever runs on this computer; don't probe for it on the public site
+  if (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname))
+    try { const r = await fetch("api/ping", { cache: "no-store" }); if (r.ok) { const j = await r.json(); SYNC.server = !!j.ok; } } catch (e) {}
   if (SYNC.server) pill("pSync", "ok", "Coach server connected"); else pill("pSync", "", "Phone mode: share sessions");
 }
 function audioExt(type) { return /mp4|aac|m4a/.test(type || "") ? "m4a" : /ogg/.test(type || "") ? "ogg" : "webm"; }
